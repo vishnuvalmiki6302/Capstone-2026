@@ -1,0 +1,49 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: sma
+      POSTGRES_PASSWORD: sma_dev
+      POSTGRES_DB: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sma"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  auth-service:
+    build: ./services/auth-service
+    environment: { DATABASE_URL: postgresql://sma:sma_dev@postgres/auth_db, JWT_SECRET: ${JWT_SECRET:-local-only-change-me} }
+    depends_on: { postgres: { condition: service_healthy } }
+  data-service:
+    build: ./services/data-service
+    environment: { DATABASE_URL: postgresql://sma:sma_dev@postgres/data_db, REDIS_URL: redis://redis:6379/0 }
+    depends_on: { postgres: { condition: service_healthy }, redis: { condition: service_healthy } }
+  analytics-service:
+    build: ./services/analytics-service
+    environment: { DATABASE_URL: postgresql://sma:sma_dev@postgres/analytics_db, DATA_SERVICE_URL: http://data-service:8002 }
+    depends_on: { postgres: { condition: service_healthy }, data-service: { condition: service_started } }
+  gateway:
+    build: ./gateway
+    ports: ["8000:8000"]
+    environment:
+      AUTH_URL: http://auth-service:8001
+      DATA_URL: http://data-service:8002
+      ANALYTICS_URL: http://analytics-service:8003
+      CORS_ORIGINS: http://localhost:5173
+    depends_on: [auth-service, data-service, analytics-service]
+  frontend:
+    build: ./frontend
+    ports: ["5173:80"]
+    depends_on: [gateway]
+volumes:
+  pgdata:
