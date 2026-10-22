@@ -1,4 +1,4 @@
-# Capstone-2026
+
 
 ## SMA.AI Team Work Division
 
